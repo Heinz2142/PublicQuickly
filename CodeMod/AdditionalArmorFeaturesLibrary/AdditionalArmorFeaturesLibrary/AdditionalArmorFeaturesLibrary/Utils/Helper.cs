@@ -9,7 +9,28 @@ namespace AdditionalArmorFeaturesLibrary.Util
 {
     public static class AdditionalArmorFeaturesLibraryConfigHelper
     {
+        private static Server config;
+        public static int oldVersion = 1;
+        public const int newVersion = 2;
 
+        public static void Init(Server cfg)
+        {
+            _ = config;
+
+            config = cfg;
+        }
+
+        public static void MigrateConfig(ICoreAPI api)
+        {
+            if (config == null) return;
+
+            config.Version = newVersion;
+
+            api.StoreModConfig(config, "awearablelight-server.json");
+
+            api.Logger.Notification($"[WearableLight] Config migrated to version {config.Version}.");
+
+        }
     }
 
     public class LoggerExt

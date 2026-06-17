@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using Vintagestory.API.Common;
 using Vintagestory.API.MathTools;
+using Vintagestory.API.Util;
 
 namespace AdditionalArmorFeaturesLibrary.Utils
 {
@@ -11,56 +13,90 @@ namespace AdditionalArmorFeaturesLibrary.Utils
 
         //public string jetSoundPath { get; set; } = string.Empty;
 
-        //public float FuelCapacityHours { get; set; } = 24f;
-        //public float FuelEfficiency { get; set; } = 1f;
-        //public string FuelAttribute { get; set; } = "nightVisionFuelHours";
-        //public string ToggleAttribute { get; set; } = "turnedOn";
-        //public bool ConsumeFuelWhileSleeping { get; set; } = false;
-        //public byte[] LightHsv { get; set; } = [0, 0, 0];
-        //public byte[] TurnedOffLightHsv { get; set; } = [0, 0, 0];
-        //public float MaxFuelWasteFraction { get; set; } = 0.5f;
-        //public string LightHsvVariantCode { get; set; } = "lining";
-        //public bool CanBeTurnedOff { get; set; } = true;
-
         //Current Stats
-        public string lightSoundPath { get; set; } = string.Empty;
+        public string? lightSoundPath { get; set; }
 
-        public float fuelCapacity = 24f;
+        public float? fuelCapacity;
         public string PowerType { get; set; } = "fuel";
-        public bool UseFuel { get; set; } = true;
-        public bool OnCraftedFueled { get; set; } = false;
+        public bool? UseFuel { get; set; }
+        public bool? OnCraftedFueled { get; set; }
         public Dictionary<string, float> FuelList { get; set; } = new();
 
 
         public static ArmorFeaturesProp? ReadFrom(ItemStack itemStack)
         {
-            if (itemStack == null) return null;
-
-            ArmorFeaturesProp? armorFeaturesProp = itemStack.Collectible.Attributes?["armorFeaturesProp"]?.AsObject<ArmorFeaturesProp>();
-
-            if (armorFeaturesProp == null)
+            if (itemStack == null)
             {
                 return null;
             }
 
-            return armorFeaturesProp;
+            return ReadFrom(itemStack.Collectible);
         }
 
         public static ArmorFeaturesProp? ReadFrom(CollectibleObject colObj)
         {
-            if (colObj == null)
+            if (colObj?.Attributes == null) return null;
+
+            var byType = colObj.Attributes["armorFeaturesPropByType"]?.AsObject<Dictionary<string, ArmorFeaturesProp>>();
+
+            if (byType == null)
             {
-                return null;
+                return colObj.Attributes["armorFeaturesProp"]?.AsObject<ArmorFeaturesProp>();
             }
 
-            ArmorFeaturesProp? armorFeaturesProp = colObj.Attributes?["armorFeaturesProp"]?.AsObject<ArmorFeaturesProp>();
+            string path = colObj.Code.Path;
 
-            if (armorFeaturesProp == null)
+            var matches = byType
+                .Where(x => WildcardUtil.Match(x.Key, path))
+                .OrderByDescending(x => x.Key.Count(c => c == '*'))
+                .ToList();
+
+            if (matches.Count == 0)
             {
-                return null;
+                return colObj.Attributes["armorFeaturesProp"]
+                    ?.AsObject<ArmorFeaturesProp>();
             }
 
-            return armorFeaturesProp;
+            ArmorFeaturesProp result = new();
+
+            foreach (var match in matches)
+            {
+                result.Merge(match.Value);
+            }
+
+            return result;
+        }
+
+        public void Merge(ArmorFeaturesProp other)
+        {
+            if (other == null) return;
+
+            if (!string.IsNullOrEmpty(other.lightSoundPath))
+                lightSoundPath = other.lightSoundPath;
+
+            if (other.fuelCapacity.HasValue)
+                fuelCapacity = other.fuelCapacity;
+
+            if (!string.IsNullOrEmpty(other.PowerType))
+                PowerType = other.PowerType;
+
+            if (other.UseFuel.HasValue)
+                UseFuel = other.UseFuel;
+
+            if (other.OnCraftedFueled.HasValue)
+                OnCraftedFueled = !other.OnCraftedFueled;
+
+            if (other.FuelList?.Count > 0)
+            {
+                foreach (var fuel in other.FuelList)
+                {
+                    FuelList[fuel.Key] = fuel.Value;
+                }
+            }
+
+            // future:
+            // if (other.lightHsv != null)
+            //     lightHsv = other.lightHsv;
         }
 
         public class ParticleProp

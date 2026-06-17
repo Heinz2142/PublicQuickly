@@ -1,12 +1,15 @@
 ﻿using AdditionalArmorFeaturesLibrary;
 using AdditionalArmorFeaturesLibrary.Collectible.Behavior;
+using AdditionalArmorFeaturesLibrary.Config;
 using AdditionalArmorFeaturesLibrary.Interfaces;
+using AdditionalArmorFeaturesLibrary.Network;
 using AdditionalArmorFeaturesLibrary.Util;
 using AdditionalArmorFeaturesLibrary.Utils;
 using Cairo;
 using HarmonyLib;
 using ProtoBuf;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -29,28 +32,31 @@ public sealed class TogglePacket
     public string HotKeyCode { get; set; } = "";
 }
 
-internal class LogStuff : ModSystem
+public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
 {
-    public override void Start(ICoreAPI api)
-    {
+    private static readonly string ConfigServerName = "additionalarmorfeatureslibrary-server.json";
 
-        api.RegisterCollectibleBehaviorClass("AdditionalArmorFeaturesLibrary:ArmorFeatures", typeof(CollectibleBehaviorArmorFeatures));
-        api.RegisterCollectibleBehaviorClass("AdditionalArmorFeaturesLibrary:Fuel", typeof(CollectibleBehaviorFuel));
+    private static readonly string ConfigClientName = "additionalarmorfeatureslibrary-client.json";
 
-    }
+    public static Server? ServerConfig { get; set; }
 
-}
+    public static Client? ClientConfig { get; set; }
 
-public partial class AdditionalArmorFeaturesLibrrarySystem : ModSystem
-{
+    private double lastServerTotalHours;
+
     public long OnLongRefreshTick { get; set; }
     public long OnLongServerFuelTick { get; set; }
     public long OnLongServerTick { get; set; }
 
     public event Action? OnDispose;
-    ICoreClientAPI capi;
-    ICoreServerAPI sapi;
-    EntityBehaviorPlayerInventory bh;
+    private ICoreServerAPI? Sapi { get; set; }
+    private ICoreClientAPI? Capi { get; set; }
+
+    private IClientNetworkChannel? ClientToggleChannel { get; set; }
+
+    private IServerNetworkChannel? ServerToggleChannel { get; set; }
+
+    public ConfigSyncSystem? ConfigSync { get; set; }
 
 
     public bool Disposed { get; private set; } = false;
@@ -58,11 +64,39 @@ public partial class AdditionalArmorFeaturesLibrrarySystem : ModSystem
 
     public override void Start(ICoreAPI api)
     {
+        base.Start(api);
+
+        if (api.Side == EnumAppSide.Server)
+        {
+            ServerConfig = new LoadOrCreate().SapiConfig(api, ConfigServerName);
+            AdditionalArmorFeaturesLibraryConfigHelper.Init(ServerConfig);
+
+            if (AdditionalArmorFeaturesLibraryConfigHelper.oldVersion >= ServerConfig.Version)
+            {
+                AdditionalArmorFeaturesLibraryConfigHelper.MigrateConfig(api);
+            }
+        }
+
+        ConfigSync = new ConfigSyncSystem(
+            api,
+            api.Side == EnumAppSide.Server ? ServerConfig : null
+        );
+
+        api.RegisterCollectibleBehaviorClass("additionalarmorfeatureslibrary:ArmorFeatures", typeof(CollectibleBehaviorArmorFeatures));
+        api.RegisterCollectibleBehaviorClass("additionalarmorfeatureslibrary:Fuel", typeof(CollectibleBehaviorFuel));
     }
 
     public override void StartClientSide(ICoreClientAPI api)
     {
-        capi = api;
+        base.StartClientSide(api);
+
+        Capi = api;
+
+        ClientConfig = new LoadOrCreate().CapiConfig(api, ConfigClientName);
+
+        ClientToggleChannel = api.Network
+           .RegisterChannel("additionalarmorfeatureslibrarytoggle")
+           .RegisterMessageType<AdditionalArmorFeaturesLibraryPacket>();
 
 
         if (!api.IsSinglePlayer)
@@ -70,10 +104,10 @@ public partial class AdditionalArmorFeaturesLibrrarySystem : ModSystem
             api.Event.EnqueueMainThreadTask(() => OnSettingsChange?.Invoke(api), "game");
         }
 
-        api.Input.RegisterHotKey("toggleLight", Lang.Get("AdditionalArmorFeaturesLibrary:keybind-activeslot-description"), GlKeys.L);
+        api.Input.RegisterHotKey("toggleLight", Lang.Get("additionalarmorfeatureslibrary:keybind-activeslot-description"), GlKeys.L);
         api.Input.SetHotKeyHandler("toggleLight", _ => OnToggleLightHotkey(api.World.Player));
 
-        api.Input.RegisterHotKey("toggleHoveredGearLight", Lang.Get("AdditionalArmorFeaturesLibrary:keybind-gearslot-description"), GlKeys.L, HotkeyType.GUIOrOtherControls, false, true, false);
+        api.Input.RegisterHotKey("toggleHoveredGearLight", Lang.Get("additionalarmorfeatureslibrary:keybind-gearslot-description"), GlKeys.L, HotkeyType.GUIOrOtherControls, false, true, false);
         api.Input.SetHotKeyHandler("toggleHoveredGearLight", _ => OnToggleHoveredGearLightHotkey(api.World.Player));
 
     }
@@ -82,7 +116,17 @@ public partial class AdditionalArmorFeaturesLibrrarySystem : ModSystem
     {
         base.StartServerSide(api);
 
-        sapi = api;
+        Sapi = api;
+
+        ServerToggleChannel = api.Network
+            .RegisterChannel("additionalarmorfeatureslibrarytoggle")
+            .RegisterMessageType<AdditionalArmorFeaturesLibraryPacket>()
+            .SetMessageHandler<AdditionalArmorFeaturesLibraryPacket>(ToggleWearableItem);
+
+        api.Event.PlayerNowPlaying += (player) =>
+        {
+            ConfigSync?.SendToPlayer(player);
+        };
 
         OnLongServerFuelTick = api.Event.RegisterGameTickListener(OnServerFuelTick, 2000);
         OnLongServerTick = api.Event.RegisterGameTickListener(OnServerTick, 100);
@@ -90,14 +134,12 @@ public partial class AdditionalArmorFeaturesLibrrarySystem : ModSystem
 
     private void OnServerTick(float obj)
     {
-        if (sapi == null) return;
+        if (Sapi == null) return;
 
-        foreach (IServerPlayer player in sapi.World.AllOnlinePlayers)
+        foreach (IServerPlayer player in Sapi.World.AllOnlinePlayers)
         {
             if (player?.Entity == null) continue;
-
-            var invGear =
-                player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
+            var invGear = player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
 
             if (invGear == null) continue;
 
@@ -106,10 +148,9 @@ public partial class AdditionalArmorFeaturesLibrrarySystem : ModSystem
                 if (slot == null || slot.Empty) continue;
 
                 var item = slot.Itemstack.Collectible.GetCollectibleBehavior<CollectibleBehaviorArmorFeatures>(true);
-
                 if (item == null) continue;
 
-                if (!ArmorFeaturesProp.ReadFrom(slot.Itemstack).UseFuel)
+                if (!(ArmorFeaturesProp.ReadFrom(slot.Itemstack)?.UseFuel ?? false))
                 {
                     continue;
                 }
@@ -123,9 +164,9 @@ public partial class AdditionalArmorFeaturesLibrrarySystem : ModSystem
     double lastCheckTotalHours;
     private void OnServerFuelTick(float dt)
     {
-        if (sapi == null) return;
+        if (Sapi == null) return;
 
-        double totalHours = sapi.World.Calendar.TotalHours;
+        double totalHours = Sapi.World.Calendar.TotalHours;
         double hoursPassed = totalHours - lastCheckTotalHours;
 
         hoursPassed = Math.Min(hoursPassed, 0.5);
@@ -136,7 +177,7 @@ public partial class AdditionalArmorFeaturesLibrrarySystem : ModSystem
             return;
         }
 
-        foreach (IServerPlayer player in sapi.World.AllOnlinePlayers)
+        foreach (IServerPlayer player in Sapi.World.AllOnlinePlayers)
         {
             if (player != null)
             {
@@ -150,31 +191,24 @@ public partial class AdditionalArmorFeaturesLibrrarySystem : ModSystem
                     if (slot == null || slot.Empty) continue;
 
                     var source = slot.Itemstack.Collectible.GetCollectibleInterface<IPowerSource>();
-
                     if (source == null) continue;
 
-                    if (!ArmorFeaturesProp.ReadFrom(slot.Itemstack).UseFuel)
+                    if (!(ArmorFeaturesProp.ReadFrom(slot.Itemstack)?.UseFuel ?? false))
                     {
                         continue;
                     }
 
-                    source.ConsumePower(
-                        slot,
-                        player.Entity,
-                        hoursPassed
-                    );
+                    source.ConsumePower(slot, player.Entity, hoursPassed);
 
                     slot.MarkDirty();
                 }
             }
         }
-
         lastCheckTotalHours = totalHours;
     }
 
     private bool ToggleWearableItem(IPlayer player, int itemslot = -1)
     {
-        player = capi.World.Player;
         if (player == null) return false;
 
         var invGear = player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
@@ -190,17 +224,20 @@ public partial class AdditionalArmorFeaturesLibrrarySystem : ModSystem
         }
 
         if (currentSlot == null || currentSlot.Empty) return false;
-
         var attachmentableLight = currentSlot.Itemstack.Collectible.GetCollectibleBehavior<CollectibleBehaviorArmorFeatures>(true);
 
         if (attachmentableLight == null) return false;
-
         var newState = !attachmentableLight.LightState(currentSlot.Itemstack);
-
         attachmentableLight.SetLightActive(currentSlot, newState, player.Entity);
-
         currentSlot.MarkDirty();
-       
+
+        ClientToggleChannel?.SendPacket(
+                new AdditionalArmorFeaturesLibraryPacket
+                {
+                    ItemSlot = itemslot
+                }
+            );
+
         return true;
     }
 
@@ -211,7 +248,7 @@ public partial class AdditionalArmorFeaturesLibrrarySystem : ModSystem
 
     private bool OnToggleHoveredGearLightHotkey(IPlayer player)
     {
-        player = capi.World.Player;
+        player = Capi.World.Player;
         var invGear = player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
 
         ItemSlot? hoveredSlot = player.InventoryManager.CurrentHoveredSlot;
@@ -222,9 +259,11 @@ public partial class AdditionalArmorFeaturesLibrrarySystem : ModSystem
             return false;
         }
 
-        LoggerExt.SendLogger(capi, [$"The current slot that {player.PlayerName} is hovered over: {itemslot}"]);
+        LoggerExt.SendLogger(Capi, [$"The current slot that {player.PlayerName} is hovered over: {itemslot}"]);
 
         return ToggleWearableItem(player, itemslot);
     }
+
+    public void ToggleWearableItem(IServerPlayer player, AdditionalArmorFeaturesLibraryPacket packet) => ToggleWearableItem(player, packet.ItemSlot);
 
 }

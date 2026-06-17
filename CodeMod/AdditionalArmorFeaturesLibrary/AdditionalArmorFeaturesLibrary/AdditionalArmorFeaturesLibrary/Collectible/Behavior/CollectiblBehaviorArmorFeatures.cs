@@ -50,7 +50,7 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
             bool hasFuel = collObj.GetCollectibleInterface<IPowerSource>()?.HasPower(stack) ?? false;
 
             // Only block activation if no fuel
-            if (active && !hasFuel && ArmorFeaturesProp.ReadFrom(stack).UseFuel)
+            if (active && !hasFuel && (ArmorFeaturesProp.ReadFrom(stack).UseFuel ?? false))
             {
                 if (api?.Side == EnumAppSide.Client)
                 {
@@ -71,7 +71,7 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
 
             if ( player != null)
             {
-                string soundPath = ArmorFeaturesProp.ReadFrom(stack).lightSoundPath ?? string.Empty;
+                string soundPath = ArmorFeaturesProp.ReadFrom(stack)?.lightSoundPath ?? string.Empty;
 
                 if (!string.IsNullOrEmpty(soundPath))
                 {
@@ -93,8 +93,8 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
             string currentCode = stack.Collectible.Code.ToString();
 
             string newCode = active
-                ? currentCode.Replace("-off", "-on")
-                : currentCode.Replace("-on", "-off");
+                ? currentCode.Replace("-lightisoff", "-lightison")
+                : currentCode.Replace("-lightison", "-lightisoff");
 
             Item? newItem = api.World.GetItem(new AssetLocation(newCode));
 

@@ -1,3 +1,6 @@
 {
-    "hello": "hello world!"
+  "additionalarmorfeatureslibrary:fuel-hours": "Fuel: {0}/{1} hours",
+  "additionalarmorfeatureslibrary:on-crafted-fuel": "Crafted with {0}/{1} hours of fuel",
+  "additionalarmorfeatureslibrary:ingameerror-light-full": "{0} is full",
+  "additionalarmorfeatureslibrary:ingameerror-light-nofuel": "{0} has no fuel"
 }
