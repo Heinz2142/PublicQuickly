@@ -69,7 +69,7 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
 
             // Play toggle sound
 
-            if ( player != null)
+            if (player != null)
             {
                 string soundPath = ArmorFeaturesProp.ReadFrom(stack)?.lightSoundPath ?? string.Empty;
 
@@ -93,8 +93,8 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
             string currentCode = stack.Collectible.Code.ToString();
 
             string newCode = active
-                ? currentCode.Replace("-lightisoff", "-lightison")
-                : currentCode.Replace("-lightison", "-lightisoff");
+                ? currentCode.Replace("-powerisoff", "-powerison")
+                : currentCode.Replace("-powerison", "-powerisoff");
 
             Item? newItem = api.World.GetItem(new AssetLocation(newCode));
 
@@ -110,7 +110,6 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
 
             slot.MarkDirty();
         }
-
 
         public override WorldInteraction[] GetHeldInteractionHelp(ItemSlot inSlot, ref EnumHandling handling)
         {

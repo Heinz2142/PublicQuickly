@@ -16,7 +16,6 @@ namespace AdditionalArmorFeaturesLibrary.Util
         public static void Init(Server cfg)
         {
             _ = config;
-
             config = cfg;
         }
 

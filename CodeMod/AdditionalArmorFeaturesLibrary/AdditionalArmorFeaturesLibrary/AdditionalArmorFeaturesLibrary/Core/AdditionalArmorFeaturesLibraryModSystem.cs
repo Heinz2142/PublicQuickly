@@ -1,28 +1,17 @@
-﻿using AdditionalArmorFeaturesLibrary;
-using AdditionalArmorFeaturesLibrary.Collectible.Behavior;
+﻿using AdditionalArmorFeaturesLibrary.Collectible.Behavior;
 using AdditionalArmorFeaturesLibrary.Config;
 using AdditionalArmorFeaturesLibrary.Interfaces;
 using AdditionalArmorFeaturesLibrary.Network;
 using AdditionalArmorFeaturesLibrary.Util;
 using AdditionalArmorFeaturesLibrary.Utils;
-using Cairo;
-using HarmonyLib;
+using AdditionalArmorFeaturesLibrary.Items;
 using ProtoBuf;
 using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Config;
-using Vintagestory.API.Datastructures;
-using Vintagestory.API.MathTools;
 using Vintagestory.API.Server;
-using Vintagestory.Client.NoObf;
 using Vintagestory.GameContent;
-using Vintagestory.Server;
-using Vintagestory.ServerMods.WorldEdit;
 
 namespace AdditionalArmorFeaturesLibrary;
 
@@ -42,13 +31,10 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
 
     public static Client? ClientConfig { get; set; }
 
-    private double lastServerTotalHours;
-
     public long OnLongRefreshTick { get; set; }
     public long OnLongServerFuelTick { get; set; }
     public long OnLongServerTick { get; set; }
 
-    public event Action? OnDispose;
     private ICoreServerAPI? Sapi { get; set; }
     private ICoreClientAPI? Capi { get; set; }
 
@@ -59,8 +45,7 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
     public ConfigSyncSystem? ConfigSync { get; set; }
 
 
-    public bool Disposed { get; private set; } = false;
-    public static event Action<ICoreAPI>? OnSettingsChange;
+    double lastCheckTotalHours;
 
     public override void Start(ICoreAPI api)
     {
@@ -82,8 +67,12 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
             api.Side == EnumAppSide.Server ? ServerConfig : null
         );
 
+        api.RegisterItemClass("additionalfeatures",typeof(ItemAdditionalFeatures)
+   );
+
         api.RegisterCollectibleBehaviorClass("additionalarmorfeatureslibrary:ArmorFeatures", typeof(CollectibleBehaviorArmorFeatures));
         api.RegisterCollectibleBehaviorClass("additionalarmorfeatureslibrary:Fuel", typeof(CollectibleBehaviorFuel));
+
     }
 
     public override void StartClientSide(ICoreClientAPI api)
@@ -97,12 +86,6 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
         ClientToggleChannel = api.Network
            .RegisterChannel("additionalarmorfeatureslibrarytoggle")
            .RegisterMessageType<AdditionalArmorFeaturesLibraryPacket>();
-
-
-        if (!api.IsSinglePlayer)
-        {
-            api.Event.EnqueueMainThreadTask(() => OnSettingsChange?.Invoke(api), "game");
-        }
 
         api.Input.RegisterHotKey("toggleLight", Lang.Get("additionalarmorfeatureslibrary:keybind-activeslot-description"), GlKeys.L);
         api.Input.SetHotKeyHandler("toggleLight", _ => OnToggleLightHotkey(api.World.Player));
@@ -139,8 +122,8 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
         foreach (IServerPlayer player in Sapi.World.AllOnlinePlayers)
         {
             if (player?.Entity == null) continue;
-            var invGear = player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
 
+            var invGear = player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
             if (invGear == null) continue;
 
             foreach (ItemSlot slot in invGear)
@@ -160,8 +143,7 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
             }
         }
     }
-
-    double lastCheckTotalHours;
+    
     private void OnServerFuelTick(float dt)
     {
         if (Sapi == null) return;

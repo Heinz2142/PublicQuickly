@@ -29,6 +29,8 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
         {
             this.api = api;
 
+            _ = collObj.Attributes;
+
             base.OnLoaded(api);
         }
 
@@ -70,7 +72,7 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
 
                 float fuel = GetStackFuel(sourceStack, sinkStack);
 
-                if (fuel <= 0f)
+                if (fuel <= 0)
                 {
                     return base.GetMergableQuantity(sinkStack, sourceStack, priority, ref handling);
                 }
@@ -150,8 +152,15 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
             AddPower(sourceStack, sinkStack, stackFuel);
 
             op.MovedQuantity = 1;
-            op.SourceSlot.TakeOut(1);
-            op.SinkSlot.MarkDirty();
+            op?.SourceSlot?.TakeOut(1);
+            op?.SourceSlot?.MarkDirty();
+
+            //api.Event.EnqueueMainThreadTask(() =>
+            //{
+            //    op.SourceSlot.TakeOut(1);
+            //    op.SourceSlot.MarkDirty();
+            //}, "consumefuel");
+
             handling = EnumHandling.PreventDefault;
         }
 

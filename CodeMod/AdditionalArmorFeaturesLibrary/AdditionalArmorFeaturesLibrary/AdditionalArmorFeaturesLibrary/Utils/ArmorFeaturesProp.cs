@@ -21,6 +21,7 @@ namespace AdditionalArmorFeaturesLibrary.Utils
         public bool? UseFuel { get; set; }
         public bool? OnCraftedFueled { get; set; }
         public Dictionary<string, float> FuelList { get; set; } = new();
+        public byte[] lightHSV { get; set; } = new byte[0];
 
 
         public static ArmorFeaturesProp? ReadFrom(ItemStack itemStack)
@@ -84,7 +85,7 @@ namespace AdditionalArmorFeaturesLibrary.Utils
                 UseFuel = other.UseFuel;
 
             if (other.OnCraftedFueled.HasValue)
-                OnCraftedFueled = !other.OnCraftedFueled;
+                OnCraftedFueled = other.OnCraftedFueled;
 
             if (other.FuelList?.Count > 0)
             {
