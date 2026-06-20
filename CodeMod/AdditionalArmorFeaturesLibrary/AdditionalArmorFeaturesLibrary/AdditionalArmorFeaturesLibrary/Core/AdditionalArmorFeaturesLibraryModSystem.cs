@@ -1,10 +1,12 @@
 ﻿using AdditionalArmorFeaturesLibrary.Collectible.Behavior;
 using AdditionalArmorFeaturesLibrary.Config;
 using AdditionalArmorFeaturesLibrary.Interfaces;
+using AdditionalArmorFeaturesLibrary.Items;
 using AdditionalArmorFeaturesLibrary.Network;
 using AdditionalArmorFeaturesLibrary.Util;
 using AdditionalArmorFeaturesLibrary.Utils;
-using AdditionalArmorFeaturesLibrary.Items;
+using AdditionalArmorFeaturesLibrary.HarmonyPatches;
+using HarmonyLib;
 using ProtoBuf;
 using System;
 using Vintagestory.API.Client;
@@ -23,6 +25,10 @@ public sealed class TogglePacket
 
 public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
 {
+
+    //To override bug in vanilla -Cry emoji-
+    private Harmony harmonyInstance => new(Mod.Info.ModID);
+
     private static readonly string ConfigServerName = "additionalarmorfeatureslibrary-server.json";
 
     private static readonly string ConfigClientName = "additionalarmorfeatureslibrary-client.json";
@@ -47,6 +53,15 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
 
     double lastCheckTotalHours;
 
+  
+    public override void StartPre(ICoreAPI api)
+    {
+        //All to make some lights work...........
+        harmonyInstance.Patch(
+        AccessTools.Method(typeof(EntityBehaviorContainer), nameof(EntityBehaviorContainer.OnTesselation)),
+        postfix: AccessTools.Method(typeof(LightRenderPatch), nameof(LightRenderPatch.OnTesselationPatch)));
+    }
+
     public override void Start(ICoreAPI api)
     {
         base.Start(api);
@@ -67,12 +82,10 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
             api.Side == EnumAppSide.Server ? ServerConfig : null
         );
 
-        api.RegisterItemClass("additionalfeatures",typeof(ItemAdditionalFeatures)
-   );
+        api.RegisterItemClass("additionalfeatures",typeof(ItemAdditionalFeatures));
 
         api.RegisterCollectibleBehaviorClass("additionalarmorfeatureslibrary:ArmorFeatures", typeof(CollectibleBehaviorArmorFeatures));
         api.RegisterCollectibleBehaviorClass("additionalarmorfeatureslibrary:Fuel", typeof(CollectibleBehaviorFuel));
-
     }
 
     public override void StartClientSide(ICoreClientAPI api)
@@ -113,6 +126,11 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
 
         OnLongServerFuelTick = api.Event.RegisterGameTickListener(OnServerFuelTick, 2000);
         OnLongServerTick = api.Event.RegisterGameTickListener(OnServerTick, 100);
+    }
+
+    public override void Dispose()
+    {
+        harmonyInstance.UnpatchAll(Mod.Info.ModID);
     }
 
     private void OnServerTick(float obj)

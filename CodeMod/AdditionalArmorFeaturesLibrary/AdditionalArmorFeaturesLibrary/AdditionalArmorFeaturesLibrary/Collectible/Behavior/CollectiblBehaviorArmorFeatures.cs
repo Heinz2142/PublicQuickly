@@ -1,4 +1,5 @@
 ﻿using AdditionalArmorFeaturesLibrary.Interfaces;
+using AdditionalArmorFeaturesLibrary.Items;
 using AdditionalArmorFeaturesLibrary.Util;
 using AdditionalArmorFeaturesLibrary.Utils;
 using System;
@@ -22,6 +23,8 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
         private ICoreAPI? api { get; set; }
 
         public ArmorFeaturesProp? armorFeaturesProp => ArmorFeaturesProp.ReadFrom(this.collObj);
+
+        public ItemAdditionalFeatures item = new ItemAdditionalFeatures { };
 
         public CollectibleBehaviorArmorFeatures(CollectibleObject collObj) : base(collObj)
         {
@@ -107,6 +110,8 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
                     Attributes = clonedAttributes
                 };
             }
+
+            //item.GetLightHsv();
 
             slot.MarkDirty();
         }

@@ -1,2 +1,2 @@
-dotnet run --project ZZCakeBuild/CakeBuild.csproj -- $args
+dotnet run --project AdditionalArmorFeaturesLibrary/AdditionalArmorFeaturesLibrary.csproj -- $args
 exit $LASTEXITCODE;
