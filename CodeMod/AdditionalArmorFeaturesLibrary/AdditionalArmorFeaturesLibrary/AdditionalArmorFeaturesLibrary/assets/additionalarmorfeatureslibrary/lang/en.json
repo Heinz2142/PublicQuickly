@@ -2,5 +2,9 @@
   "additionalarmorfeatureslibrary:fuel-hours": "Fuel: {0}/{1} hours",
   "additionalarmorfeatureslibrary:on-crafted-fuel": "Crafted with {0}/{1} hours of fuel",
   "additionalarmorfeatureslibrary:ingameerror-item-full": "{0} is full",
-  "additionalarmorfeatureslibrary:ingameerror-item-nofuel": "{0} has no fuel"
+  "additionalarmorfeatureslibrary:ingameerror-item-nofuel": "{0} has no fuel",
+
+  "additionalarmorfeatureslibrary:keybind-activeslot-description-power": "Toggle Power",
+  "additionalarmorfeatureslibrary:keybind-activeslot-description-light": "Toggle Light",
+  "additionalarmorfeatureslibrary:keybind-activeslot-description-exstate": "Toggle Extra"
 }

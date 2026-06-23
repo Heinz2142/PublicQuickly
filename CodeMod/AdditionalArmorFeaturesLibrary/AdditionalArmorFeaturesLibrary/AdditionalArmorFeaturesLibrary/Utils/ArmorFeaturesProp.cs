@@ -11,14 +11,13 @@ namespace AdditionalArmorFeaturesLibrary.Utils
     public class ArmorFeaturesProp
     {
 
-        
-
         //Current Stats
         //Music vars.
         public string? lightSoundPath { get; set; }
         public string? powerSoundPath { get; set; }
-
-        //public string jetSoundPath { get; set; } = string.Empty;
+        public string? exstateSoundPath { get; set; }
+        public string? jumppackSoundPath { get; set; }
+        public string? jetpackSoundPath { get; set; }
 
         //Power vars.
         public bool FeaturesUsePower { get; set; } = false;
@@ -32,8 +31,15 @@ namespace AdditionalArmorFeaturesLibrary.Utils
         //Light var.
         public byte[] lightHSV { get; set; } = new byte[0];
 
-        //
-        //?
+        //Jumppack Var.
+        public double jumpForwardVel = 0;
+        public double jumpUpwardVel = 0;
+        public double jumpDelay = 0;
+        public double jumpConsumption = 0;
+        //Jetpack Var.
+        public double jetMaxUpwardVel = 0.25;
+        public double jetUpwardVel = 0.03;
+        public double jetConsumption = 0;
 
         public static ArmorFeaturesProp? ReadFrom(ItemStack itemStack)
         {

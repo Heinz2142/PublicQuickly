@@ -5,7 +5,11 @@ namespace AdditionalArmorFeaturesLibrary.Network
     public enum ToggleType
     {
         Power,
-        Light
+        Light,
+        Exstate,
+        JumppackActivation,
+        Jumppack,
+        Jetpack
     }
 
 

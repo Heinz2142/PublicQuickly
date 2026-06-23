@@ -1,14 +1,15 @@
 ﻿using AdditionalArmorFeaturesLibrary.Collectible.Behavior;
 using AdditionalArmorFeaturesLibrary.Config;
+using AdditionalArmorFeaturesLibrary.HarmonyPatches;
 using AdditionalArmorFeaturesLibrary.Interfaces;
 using AdditionalArmorFeaturesLibrary.Items;
 using AdditionalArmorFeaturesLibrary.Network;
 using AdditionalArmorFeaturesLibrary.Util;
 using AdditionalArmorFeaturesLibrary.Utils;
-using AdditionalArmorFeaturesLibrary.HarmonyPatches;
 using HarmonyLib;
 using ProtoBuf;
 using System;
+using System.Numerics;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Config;
@@ -53,7 +54,12 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
 
     double lastCheckTotalHours;
 
-  
+    //For Jumppack
+    private bool wasJumping;
+    private long lastJumpPress;
+    private const int DoubleTapWindowMs = 300;
+
+
     public override void StartPre(ICoreAPI api)
     {
         //All to make some lights work...........
@@ -87,6 +93,9 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
         api.RegisterCollectibleBehaviorClass("additionalarmorfeatureslibrary:Power", typeof(CollectibleBehaviorPower));
         api.RegisterCollectibleBehaviorClass("additionalarmorfeatureslibrary:Light", typeof(CollectibleBehaviorLight));
         api.RegisterCollectibleBehaviorClass("additionalarmorfeatureslibrary:Fuel", typeof(CollectibleBehaviorFuel));
+        api.RegisterCollectibleBehaviorClass("additionalarmorfeatureslibrary:Exstate", typeof(CollectibleBehaviorExstate));
+        api.RegisterCollectibleBehaviorClass("additionalarmorfeatureslibrary:Jumppack", typeof(CollectibleBehaviorJumppack));
+        api.RegisterCollectibleBehaviorClass("additionalarmorfeatureslibrary:Jetpack", typeof(CollectibleBehaviorJetpack));
     }
 
     public override void StartClientSide(ICoreClientAPI api)
@@ -96,6 +105,9 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
         Capi = api;
 
         ClientConfig = new LoadOrCreate().CapiConfig(api, ConfigClientName);
+
+        api.Event.RegisterGameTickListener(_ => CheckDoubleJump(api), 20);
+        api.Event.RegisterGameTickListener(_ => CheckJetPack(api), 20);
 
         ClientToggleChannel = api.Network
            .RegisterChannel("additionalarmorfeatureslibrarytoggle")
@@ -107,6 +119,14 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
         api.Input.RegisterHotKey("toggleLight", Lang.Get("additionalarmorfeatureslibrary:keybind-activeslot-description-light"), GlKeys.L);
         api.Input.SetHotKeyHandler("toggleLight", _ => OnToggleLightHotkey(api.World.Player));
 
+        api.Input.RegisterHotKey("toggleExstate", Lang.Get("additionalarmorfeatureslibrary:keybind-activeslot-description-exstate"), GlKeys.K);
+        api.Input.SetHotKeyHandler("toggleExstate", _ => OnToggleExstateHotkey(api.World.Player));
+
+        api.Input.RegisterHotKey("toggleJumppack", Lang.Get("additionalarmorfeatureslibrary:keybind-activeslot-description-jumppack"), GlKeys.Z);
+        api.Input.SetHotKeyHandler("toggleJumppack", _ => OnToggleJumppackHotkey(api.World.Player));
+
+        api.Input.RegisterHotKey("toggleJetpack", Lang.Get("additionalarmorfeatureslibrary:keybind-activeslot-description-jetpack"), GlKeys.N);
+        api.Input.SetHotKeyHandler("toggleJetpack", _ => OnToggleJetpackHotkey(api.World.Player));
     }
 
     public override void StartServerSide(ICoreServerAPI api)
@@ -142,11 +162,28 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
             case ToggleType.Light:
                 ToggleLightWearableItem(player, packet.ItemSlot);
                 break;
+            case ToggleType.Exstate:
+                ToggleExstateWearableItem(player, packet.ItemSlot);
+                break;
+            case ToggleType.Jumppack:
+                JumppackActivate(player, packet.ItemSlot);
+                break;
+            case ToggleType.JumppackActivation:
+                ToggleJumppackWearableItem(player, packet.ItemSlot);
+                break;
+            case ToggleType.Jetpack:
+                ToggleJetpackWearableItem(player, packet.ItemSlot);
+                break;
         }
     }
 
     public override void Dispose()
     {
+        base.Dispose();
+
+        ServerToggleChannel = null;
+        ClientToggleChannel = null;
+
         harmonyInstance.UnpatchAll(Mod.Info.ModID);
     }
 
@@ -162,7 +199,6 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
 
         double totalHours = Sapi.World.Calendar.TotalHours;
         double hoursPassed = totalHours - lastCheckTotalHours;
-        double Consumption = hoursPassed;
 
         hoursPassed = Math.Min(hoursPassed, 0.5);
 
@@ -192,9 +228,22 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
                     {
                         continue;
                     }
+                    double Consumption = hoursPassed;
 
                     //For Each Turned on Passive, Increase Consumption by 1x
                     if (slot.Itemstack.Attributes.GetBool("togglelight")){ Consumption = hoursPassed*2; }
+
+                    //Consumption for Jetpack
+                    if (slot.Itemstack.Attributes.GetBool("togglejetpack"))
+                    {
+                        // Only burn extra fuel while actively flying
+                        if (player.Entity.Controls.Jump)
+                        {
+                            Consumption += hoursPassed * (
+                                ArmorFeaturesProp.ReadFrom(slot.Itemstack)?.jetConsumption ?? 0
+                            );
+                        }
+                    }
 
                     source.ConsumePower(slot, player.Entity, Consumption);
 
@@ -205,6 +254,52 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
         lastCheckTotalHours = totalHours;
     }
 
+    //Checks for jetpack flight.
+    private void CheckJetPack(ICoreClientAPI api)
+    {
+        var player = api.World.Player;
+        bool flying = player.Entity.Controls.Jump;
+
+        var invGear = player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
+        if (invGear == null) return;
+
+        if (flying)
+        {
+            foreach (ItemSlot slot in invGear)
+            {
+                if (slot.Empty) continue;
+
+                var jetpack = slot.Itemstack.Collectible
+                    .GetCollectibleBehavior<CollectibleBehaviorJetpack>(true);
+
+                if (jetpack == null) continue;
+
+                jetpack.FlyJetpack(slot, player.Entity);
+            }
+        }
+    }
+    //To activate jumppack on double tap.
+    private void CheckDoubleJump(ICoreClientAPI api)
+    {
+        bool jumping = api.World.Player.Entity.Controls.Jump;
+
+        // Detect key press (not key held)
+        if (jumping && !wasJumping)
+        {
+            long now = api.World.ElapsedMilliseconds;
+
+            if (now - lastJumpPress <= DoubleTapWindowMs)
+            {
+                JumppackHotkey(api.World.Player);
+            }
+
+            lastJumpPress = now;
+        }
+
+        wasJumping = jumping;
+    }
+
+    ///POWER///
     //To Toggle Power
     public void TogglePowerWearableItem(IServerPlayer player, AdditionalArmorFeaturesLibraryPacket packet) => TogglePowerWearableItem(player);
     private bool TogglePowerWearableItem(IPlayer player, int itemslot = -1)
@@ -229,14 +324,16 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
             armorPiece.SetPowerActive(slot, newState, player.Entity);
 
             slot.MarkDirty();
-
-            ClientToggleChannel?.SendPacket(
-                new AdditionalArmorFeaturesLibraryPacket
-                {
-                    Toggle = ToggleType.Power
-                }
-            );
         }
+
+        //sync to server.
+        ClientToggleChannel?.SendPacket(
+            new AdditionalArmorFeaturesLibraryPacket
+            {
+                Toggle = ToggleType.Power
+            }
+        );
+
         return true;
     }
 
@@ -245,6 +342,7 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
         return TogglePowerWearableItem(player);
     }
 
+    ///LIGHT///
     //To Toggle Light
     public void ToggleLightWearableItem(IServerPlayer player, AdditionalArmorFeaturesLibraryPacket packet) => ToggleLightWearableItem(player);
     private bool ToggleLightWearableItem(IPlayer player, int itemslot = -1)
@@ -269,14 +367,15 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
             armorPiece.SetLightActive(slot, newState, player.Entity);
 
             slot.MarkDirty();
-
-            ClientToggleChannel?.SendPacket(
-                new AdditionalArmorFeaturesLibraryPacket
-                {
-                    Toggle = ToggleType.Light
-                }
-            );
         }
+
+        //sync to server.
+        ClientToggleChannel?.SendPacket(
+            new AdditionalArmorFeaturesLibraryPacket
+            {
+                Toggle = ToggleType.Light
+            }
+        );
 
         return true;
     }
@@ -285,5 +384,178 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem
     {
         return ToggleLightWearableItem(player);
     }
+
+    ///EXTRA STATE///
+    //To Toggle Extra State
+    public void ToggleExstateWearableItem(IServerPlayer player, AdditionalArmorFeaturesLibraryPacket packet) => ToggleExstateWearableItem(player);
+    private bool ToggleExstateWearableItem(IPlayer player, int itemslot = -1)
+    {
+        if (player == null) return false;
+
+        var invGear = player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
+
+        ItemSlot? currentSlot = player.InventoryManager.ActiveHotbarSlot;
+
+        var logger = player.Entity.Api.Logger;
+
+        //Toggle for all worn items.
+        foreach (ItemSlot slot in invGear)
+        {
+            if (slot.Empty) continue;
+
+            var armorPiece = slot.Itemstack.Collectible.GetCollectibleBehavior<CollectibleBehaviorExstate>(true);
+            if (armorPiece == null) continue;
+
+            var newState = !armorPiece.ExstateState(slot.Itemstack);
+            armorPiece.SwitchExstatestate(slot, newState, player.Entity);
+
+            slot.MarkDirty();
+        }
+
+        //sync to server.
+        ClientToggleChannel?.SendPacket(
+            new AdditionalArmorFeaturesLibraryPacket
+            {
+                Toggle = ToggleType.Exstate
+            }
+        );
+
+        return true;
+    }
+
+    private bool OnToggleExstateHotkey(IPlayer player)
+    {
+        return ToggleExstateWearableItem(player);
+    }
+
+    ///JUMPPACK///
+    //Jumppack action.
+    public void JumppackActivate(IServerPlayer player, AdditionalArmorFeaturesLibraryPacket packet) => JumppackActivate(player);
+    private bool JumppackActivate(IPlayer player, int itemslot = -1)
+    {
+        Console.WriteLine("Jumppack Activated");
+        if (player == null) return false;
+
+        var invGear = player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
+
+        ItemSlot? currentSlot = player.InventoryManager.ActiveHotbarSlot;
+
+        var logger = player.Entity.Api.Logger;
+
+        //Toggle for all worn items Though not recommended to have more than 1 item with jump function.
+        foreach (ItemSlot slot in invGear)
+        {
+            if (slot.Empty) continue;
+
+            var armorPiece = slot.Itemstack.Collectible.GetCollectibleBehavior<CollectibleBehaviorJumppack>(true);
+            if (armorPiece == null) continue;
+
+            armorPiece.JumpJumppack(slot, player.Entity);
+
+            slot.MarkDirty();
+        }
+
+        //sync to server.
+        ClientToggleChannel?.SendPacket(
+            new AdditionalArmorFeaturesLibraryPacket
+            {
+                Toggle = ToggleType.Jumppack
+            }
+        );
+
+        return true;
+    }
+
+    private bool JumppackHotkey(IPlayer player)
+    {
+        return JumppackActivate(player);
+    }
+
+    //To toggle jumppack
+    public void ToggleJumppackWearableItem(IServerPlayer player, AdditionalArmorFeaturesLibraryPacket packet) => ToggleJumppackWearableItem(player);
+    private bool ToggleJumppackWearableItem(IPlayer player, int itemslot = -1)
+    {
+        if (player == null) return false;
+
+        var invGear = player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
+
+        ItemSlot? currentSlot = player.InventoryManager.ActiveHotbarSlot;
+
+        var logger = player.Entity.Api.Logger;
+
+        // Toggle for all worn items.
+        foreach (ItemSlot slot in invGear)
+        {
+            if (slot.Empty) continue;
+
+            var armorPiece = slot.Itemstack.Collectible.GetCollectibleBehavior<CollectibleBehaviorJumppack>(true);
+            if (armorPiece == null) continue;
+
+            var newState = !armorPiece.JumppackState(slot.Itemstack);
+            armorPiece.SetJumppackActive(slot, newState, player.Entity);
+
+            slot.MarkDirty();
+        }
+
+        //sync to server.
+        ClientToggleChannel?.SendPacket(
+            new AdditionalArmorFeaturesLibraryPacket
+            {
+                Toggle = ToggleType.JumppackActivation
+            }
+        );
+
+        return true;
+    }
+
+    private bool OnToggleJumppackHotkey(IPlayer player)
+    {
+        return ToggleJumppackWearableItem(player);
+    }
+
+    ///JETPACK///
+    //To toggle jetpack
+    public void ToggleJetpackWearableItem(IServerPlayer player, AdditionalArmorFeaturesLibraryPacket packet) => ToggleJetpackWearableItem(player);
+    private bool ToggleJetpackWearableItem(IPlayer player, int itemslot = -1)
+    {
+        Console.WriteLine("Toggling Jetpack");
+        if (player == null) return false;
+
+        var invGear = player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
+
+        ItemSlot? currentSlot = player.InventoryManager.ActiveHotbarSlot;
+
+        var logger = player.Entity.Api.Logger;
+
+        // Toggle for all worn items.
+        foreach (ItemSlot slot in invGear)
+        {
+            if (slot.Empty) continue;
+
+            var armorPiece = slot.Itemstack.Collectible.GetCollectibleBehavior<CollectibleBehaviorJetpack>(true);
+            if (armorPiece == null) continue;
+
+            var newState = !armorPiece.JetpackState(slot.Itemstack);
+            armorPiece.SetJetpackActive(slot, newState, player.Entity);
+
+            slot.MarkDirty();
+        }
+
+        //sync to server.
+        ClientToggleChannel?.SendPacket(
+            new AdditionalArmorFeaturesLibraryPacket
+            {
+                Toggle = ToggleType.Jetpack
+            }
+        );
+
+        return true;
+    }
+
+    private bool OnToggleJetpackHotkey(IPlayer player)
+    {
+        return ToggleJetpackWearableItem(player);
+    }
+
 
 }

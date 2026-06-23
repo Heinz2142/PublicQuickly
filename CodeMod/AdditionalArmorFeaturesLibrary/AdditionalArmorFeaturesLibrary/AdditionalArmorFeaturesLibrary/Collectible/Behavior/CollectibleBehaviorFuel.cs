@@ -2,6 +2,7 @@
 using AdditionalArmorFeaturesLibrary.Util;
 using AdditionalArmorFeaturesLibrary.Utils;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -275,6 +276,7 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
             sourceStack.Attributes.SetDouble("fuelHours", GameMath.Clamp(amount, 0, ArmorFeaturesProp.ReadFrom(sourceStack)?.fuelCapacity ?? 0f));
         }
 
+        //Main fuel consumption. Usually constant.
         public virtual void ConsumePower(ItemSlot slot, EntityPlayer entityPlayer, double amount)
         {
             if (slot.Empty) return;
@@ -316,6 +318,34 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
                 );
                 }
             }
+        }
+
+        //Single time fuel consumption for Feature Actions.
+        public virtual void ActionConsumePower(ItemStack stack, EntityPlayer entityPlayer, double amount)
+        {
+            if (stack == null) return;
+            var powerPiece = stack.Collectible.GetCollectibleBehavior<CollectibleBehaviorPower>(true);
+
+            if (powerPiece == null) return;
+
+
+            // Only consume while active if it uses power
+            if (ArmorFeaturesProp.ReadFrom(stack).FeaturesUsePower)
+            {
+                return;
+            }
+
+            double fuel = GetPower(stack);
+
+            //Can't jump if not enough fuel.
+            if (GetPower(stack) > amount)
+            {
+                return;
+            }
+
+            SetPower(stack, fuel - amount);
+
+            fuel = GetPower(stack);
         }
 
         public virtual void AddPower(ItemStack sourceStack, ItemStack sinkStack, double amount)
