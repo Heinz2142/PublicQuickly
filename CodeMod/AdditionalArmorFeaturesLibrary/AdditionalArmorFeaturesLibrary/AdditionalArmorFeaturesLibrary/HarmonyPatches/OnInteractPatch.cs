@@ -18,78 +18,45 @@ namespace AdditionalArmorFeaturesLibrary.HarmonyPatches
         [HarmonyTranspiler]
         public static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
         {
-            var codes = new List<CodeInstruction>(instructions);
+            var codeMatcher = new CodeMatcher(instructions);
 
-            var getAttackPower = AccessTools.Method(
-                typeof(CollectibleObject),
-                "GetAttackPower"
-            );
+            //step 1: damage injection after Collectible.GetAttackPower
+            codeMatcher.MatchStartForward(CodeMatch.Calls(() => default(CollectibleObject).GetAttackPower));
+            codeMatcher.Advance(3); //advance to after the switch statement ? (after stloc.2) but before the setup for get_Itemstack
+            //Console.WriteLine("Transpiler step 1 at " + codeMatcher.Instruction);
+            codeMatcher.InsertAfter([
+                new CodeInstruction(OpCodes.Ldloca_S, 2), //load reference to damage value
+                new CodeInstruction(OpCodes.Ldarg_1), //load byEntity
+                new CodeInstruction(OpCodes.Ldarg_0), //load thisEntity
+                new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(OnInteractPatch), nameof(DamageInjection)))
+                ]);
 
-            var getToolTier = AccessTools.Method(
-                typeof(CollectibleObject),
-                "GetToolTier"
-            );
+            //step 2: DamageSource modification before this.GetInterface<IMountable>()
+            codeMatcher.MatchStartForward(CodeMatch.Calls(() => default(Entity).GetInterface<IMountable>));
+            codeMatcher.Advance(-1); //step back to before the ldarg.0 that sets up that call
+            //Console.WriteLine("Transpiler step 2 at " + codeMatcher.Instruction);
+            codeMatcher.Insert([
+                new CodeInstruction(OpCodes.Ldloc_S, 7), //load DamageSource
+                new CodeInstruction(OpCodes.Ldarg_1), //load byEntity
+                new CodeInstruction(OpCodes.Ldarg_0), //load thisEntity
+                new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(OnInteractPatch), nameof(DamageSourceInjection)))
+                ]);
 
-            var getStats = AccessTools.PropertyGetter(
-                typeof(EntityAgent),
-                "Stats"
-            );
-
-            var getBlended = AccessTools.Method(
-                typeof(EntityStats),
-                "GetBlended",
-                new[] { typeof(string) }
-            );
-
-            for (int i = 0; i < codes.Count; i++)
-            {
-                // 1) Find GetAttackPower call
-                if (codes[i].Calls(getAttackPower))
-                {
-                    // We jump forward until after damage is stored but BEFORE GetToolTier starts
-                    int insertIndex = -1;
-
-                    for (int j = i; j < codes.Count; j++)
-                    {
-                        // find first GetToolTier call → that's our boundary
-                        if (codes[j].Calls(getToolTier))
-                        {
-                            insertIndex = j;
-                            break;
-                        }
-                    }
-
-                    if (insertIndex == -1)
-                        return codes;
-
-                    // Insert: damage += entity.Stats.GetBlended("damageBonus");
-
-                    // load entity (byEntity = ldarg.1)
-                    codes.Insert(insertIndex, new CodeInstruction(OpCodes.Ldarg_1));
-
-                    // get Stats
-                    codes.Insert(insertIndex + 1, new CodeInstruction(OpCodes.Callvirt, getStats));
-
-                    // push string
-                    codes.Insert(insertIndex + 2, new CodeInstruction(OpCodes.Ldstr, "damageBonus"));
-
-                    // call GetBlended
-                    codes.Insert(insertIndex + 3, new CodeInstruction(OpCodes.Callvirt, getBlended));
-
-                    // add to damage (damage is still on stack via local OR reloaded)
-                    // easiest safe method: reload local damage
-
-                    // NOTE: we assume damage is in local 0 (common in VS builds, but safer would be local search)
-                    codes.Insert(insertIndex + 4, new CodeInstruction(OpCodes.Ldloc_0));
-                    codes.Insert(insertIndex + 5, new CodeInstruction(OpCodes.Add));
-                    codes.Insert(insertIndex + 6, new CodeInstruction(OpCodes.Stloc_0));
-
-                    break;
-                }
-            }
-
-            return codes;
+            return codeMatcher.Instructions();
         }
 
+        //DamageInjection runs just after slot.Itemstack.Collectible.GetAttackPower(slot.Itemstack);
+        public static void DamageInjection(ref float damage, Entity byEntity, EntityAgent damagedEntity)
+        {
+            damage += 5;
+            byEntity.Api.Logger.Debug($"{byEntity.Api.Side} Dealing {damage} from {byEntity.GetName()} to {damagedEntity.GetName()}");
+        }
+
+        //DamageSourceInjection runs just before IMountable im = this.GetInterface<IMountable>();
+        public static void DamageSourceInjection(DamageSource damageSource, Entity byEntity, EntityAgent damagedEntity)
+        {
+            damageSource.KnockbackStrength += 5;
+            byEntity.Api.Logger.Debug($"{byEntity.Api.Side} Dealing {damageSource.KnockbackStrength} knockback from {byEntity.GetName()} to {damagedEntity.GetName()}");
+        }
     }
 }
