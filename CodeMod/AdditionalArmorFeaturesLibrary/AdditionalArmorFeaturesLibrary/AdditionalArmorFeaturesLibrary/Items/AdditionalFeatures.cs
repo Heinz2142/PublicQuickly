@@ -1,5 +1,7 @@
 ﻿using AdditionalArmorFeaturesLibrary.Utils;
+using System;
 using Vintagestory.API.Common;
+using Vintagestory.API.Config;
 using Vintagestory.API.MathTools;
 using Vintagestory.Common;
 
@@ -19,65 +21,54 @@ namespace AdditionalArmorFeaturesLibrary.Items
         }
 
         //For when Equiping/Deequiping armors.
-        public override void OnModifiedInInventorySlot(IWorldAccessor world, ItemSlot slot, ItemStack extractedStack = null)
+        public override void OnModifiedInInventorySlot(IWorldAccessor world, ItemSlot slot, ItemStack extractedStack)
         {
             base.OnModifiedInInventorySlot(world, slot, extractedStack);
 
             if (slot?.Inventory is InventoryBasePlayer inv)
             {
-                var player = inv.Player as EntityPlayer;
+                var player = inv.Player;
                 if (player == null) return;
 
                 // Check if this is a gear slot
                 if (slot.Inventory is InventoryCharacter invChar)
                 {
-                    HandleGearChange(player, slot, extractedStack);
+                    Console.WriteLine("Got in part 1");
+                    HandleGearChange(player);
                 }
             }
         }
 
-        private void HandleGearChange(EntityPlayer player, ItemSlot slot, ItemStack oldStack)
+        public void HandleGearChange(IPlayer player)
         {
-            if (player == null || slot == null) return;
+            if (player?.InventoryManager == null) return;
 
-            ItemStack newStack = slot.Itemstack;
+            var invGear = player.InventoryManager.GetOwnInventory(GlobalConstants.characterInvClassName);
+            if (invGear == null) return;
 
-            // UNEQUIP
-            if (oldStack != null && newStack == null)
+            float bonusDamage = 0;
+            float bonusKnockback = 0;
+            float fallModifier = 1;
+
+            foreach (var slot in invGear)
             {
-                ApplyItemStats(player, oldStack, remove: true);
-                return;
+                if (slot.Empty) continue;
+
+                var props = ArmorFeaturesProp.ReadFrom(slot.Itemstack);
+
+                if (props != null)
+                {
+                    bonusDamage += ArmorFeaturesProp.ReadFrom(slot.Itemstack).armorDamageBonus;
+                    bonusKnockback += ArmorFeaturesProp.ReadFrom(slot.Itemstack).knockbackBonus;
+                    fallModifier += ArmorFeaturesProp.ReadFrom(slot.Itemstack).falldamageModifier;
+                    Console.WriteLine("Should get in here once");
+                }
             }
+            player.Entity.Stats.Set("armorDamageBonus", "armorDamageBonus", bonusDamage, true);
 
-            // EQUIP
-            if (oldStack == null && newStack != null)
-            {
-                ApplyItemStats(player, newStack, remove: false);
-                return;
-            }
+            player.Entity.Stats.Set("knockbackBonus", "knockbackBonus", bonusKnockback, true);
 
-            // SWAP (replace item)
-            if (oldStack != null && newStack != null)
-            {
-                ApplyItemStats(player, oldStack, remove: true);
-                ApplyItemStats(player, newStack, remove: false);
-            }
-        }
-
-        private void ApplyItemStats(EntityPlayer player, ItemStack stack, bool remove)
-        {
-            if (stack?.Collectible == null) return;
-
-            float bonus = stack.Collectible.Attributes?["damageBonus"]?.AsFloat(0) ?? 0;
-            string key = "damageBonus";
-            float current = player.WatchedAttributes.GetFloat(key);
-
-            if (remove)
-                current -= bonus;
-            else
-                current += bonus;
-
-            player.WatchedAttributes.SetFloat(key, current);
+            player.Entity.Properties.FallDamageMultiplier = fallModifier;
         }
 
     }

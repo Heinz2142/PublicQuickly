@@ -114,8 +114,8 @@ public partial class AdditionalArmorFeaturesLibrarySystem : ModSystem, IRenderer
 
         ClientConfig = new LoadOrCreate().CapiConfig(api, ConfigClientName);
 
-        Capi.Event.RegisterGameTickListener(_ => CheckDoubleJump(Capi), 20);
-        Capi.Event.RegisterGameTickListener(_ => CheckJetPack(Capi), 20);
+        Capi.Event.RegisterGameTickListener(_ => CheckDoubleJump(Capi), 100);
+        Capi.Event.RegisterGameTickListener(_ => CheckJetPack(Capi), 100);
 
         Capi.Event.RegisterRenderer(this, EnumRenderStage.Before, "nightvision");
 

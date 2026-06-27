@@ -32,7 +32,6 @@ namespace AdditionalArmorFeaturesLibrary.Collectible.Behavior
 
         public bool NightvisionState(ItemStack stack)
         {
-            Console.WriteLine("nightvision trigger");
             return stack.Attributes.GetBool("togglenightvision");
         }
 

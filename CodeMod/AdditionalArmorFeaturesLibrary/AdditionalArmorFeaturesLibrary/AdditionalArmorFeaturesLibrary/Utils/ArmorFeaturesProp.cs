@@ -55,7 +55,7 @@ namespace AdditionalArmorFeaturesLibrary.Utils
             public int particleCount { get; set; } = 0;
             public Argb color { get; set; }
             public Vec3f minVelocity { get; set; } = new Vec3f(0.0f, 0.0f, 0.0f);
-            public Vec3f maxVelocity { get; set; } = new Vec3f( 0.0f, 0.0f, 0.0f );
+            public Vec3f maxVelocity { get; set; } = new Vec3f(0.0f, 0.0f, 0.0f);
             public float lifeLength { get; set; } = 1;
             public float gravity { get; set; } = 0;
             public float particleSize { get; set; } = 1;
@@ -64,7 +64,9 @@ namespace AdditionalArmorFeaturesLibrary.Utils
         public ParticleEntry[] particlesList { get; set; } = Array.Empty<ParticleEntry>();
 
         //Additional Damage from Armor (Powered)
-        public float damageBonus { get; set; } = 10;
+        public float armorDamageBonus { get; set; } = 0;
+        public float knockbackBonus { get; set; } = 0;
+        public float falldamageModifier { get; set; } = 0;
 
 
 
